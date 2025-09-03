@@ -1,0 +1,308 @@
+l
+ 
+ 
+
+
+Oracle Cloud Infrastructure
+Recommended Health Checks for NVIDIA GPUs
+ 
+ 
+
+Asset Handover Doc
+•	V0.1 - Dec 18, 2024
+•	V0.2 - Jan 15, 2025
+•	V0.3 – Aug 5, 2025
+ 
+ 
+ 
+
+ 
+INTERNAL/CONFIDENTIAL
+ 
+This document is meant as a reference for Oracle Cloud Infrastructure (OCI) BM.GPU.H100.8, BM.GPU.H200.8, BM.GPU.B200.8, BM.GPU.GB200.4  It is INTERNAL/CONFIDENTIAL and should only be shared with customers under NDA. 
+ 
+
+
+System Checks	3
+Eth0 is not named properly	3
+WPA Auth Issues (On boot up) #1	3
+WPA Auth Issues (On boot up) #2	4
+WPA Auth Issues (After 30 minutes of system boot up)	4
+NVIDIA Fabric Manager Failed to Start	5
+HCA Fatal Error	5
+Hardware fell of the bus	6
+PCIe Width missing lanes	6
+GID Index:	7
+GPU Checks	8
+ECC Errors	8
+Row Remap Error	9
+Thermal Throttling	10
+Missing GPU(s)	10
+NVIDIA IMEX Errors (GB200)	10
+NVLink Errors	11
+Network Checks	11
+Eth0 Physical Errors:	11
+RDMA Link Down	11
+RDMA Link flaps	11
+IB PKeys (GB200)	12
+Source Based Routing	13
+Appendix:	14
+
+
+ 
+System Checks
+Depending on the operating system and NVIDIA drivers used, you will encounter issues that will cause your H100 system to not work as expected. Below is a list of issues that are seen on NVIDIA GPU systems and OCI recommendations to address them. 
+
+Eth0 is not named properly
+-	Symptoms: 
+o	MPI jobs fail to start because eth0 is missing
+-	Check:
+o	ip addr | grep eth0
+-	Recommendations:
+o	Reboot the node (see appendix) if it is not present
+
+WPA Auth Issues (On boot up) #1
+-	Symptoms: 
+o	Failed wpa supplicant errors in the syslog. 
+o	Two node NCCL test fails to run but all RDMA cables and routes are configured as expected
+-	Check: 
+o	for i in $(seq 0 15); do sudo wpa_cli -i rdma$i status | grep "PAE"; done (H100)
+o	for i in $(seq 0 7); do sudo wpa_cli -i rdma$i status | grep "PAE"; done (H200/B200)
+
+-	Recommendations:
+o	If the check fails by reporting an error for one of the RDMA links, rerun the test since there could be a reconfiguration in progress when the certificate rotates. If both tests fail, restart the OCA plugin (see appendix) if one of the Supplicant PAE state != AUTHENTICATED
+
+ 
+WPA Auth Issues (On boot up) #2
+-	Symptoms: 
+o	Failed wpa supplicant errors in the syslog. 
+o	Two node NCCL test fails to run but all RDMA cables and routes are configured as expected
+o	Ib_modify_qp errors or connection closed are seen in the job logs
+-	Check: 
+o	for i in $(seq 0 15); do sudo wpa_cli -i rdma$i status | grep "PAE"; done (H100)
+o	for i in $(seq 0 7); do sudo wpa_cli -i rdma$i status | grep "PAE"; done (H200/B200)
+
+-	Recommendations:
+o	If the check returns showing all the links where the Supplicant PAE state = AUTHENTICATING or CONNECTING, rerun the test since there could be a reconfiguration in progress when the certificate rotates. This can be see in the image below.
+
+ 
+If both tests fail, check to see if the /var/run/wpa_supplicant/client.p12 has a size of zero or if the cert is expired. If this is the case, remove the file and restart the OCA plugin (see appendix). After a few minutes you should see all rdma links in with a Supplicant PAE state = AUTHENTICATED. If this is not the case, please reach out to your OCI contact for further evaluation.
+WPA Auth Issues (After 30 minutes of system boot up)
+-	Symptoms: 
+o	Large jobs fail on start up or jobs run slower than expected
+-	Check:
+o	grep “authentication failed” /var/log/syslog (Ubuntu)
+o	grep “authentication failed” /var/log/messages (OL/RHEL)
+-	Example of output in the logs
+	wpa_supplicant[1641420]: rdma4: CTRL-EVENT-EAP-FAILURE EAP authentication failed
+	wpa_supplicant[1641420]: rdma4: CTRL-EVENT-EAP-SUCCESS EAP authentication completed successfully
+-	Recommendations:
+o	Restart the OCA plugin (see appendix) if you see a “authentication failed”
+o	If the problem persists, please contact OCI support
+
+NVIDIA Fabric Manager Failed to Start
+-	Symptoms: 
+o	One node NCCL test fails to run
+-	Check:
+o	nvidia-smi -q -i 0 | grep -i -A 2 Fabric | grep 'In Progress'
+	If it returns something other than a blank line like below than it has failed to start properly
+ 
+-	Recommendations: 
+o	Restart the NVIDIA fabric manager service (systemctl restart nvidia-fabricmanager.service and then wait a few minutes before rechecking) or reboot the node (see appendix), if the problem persists, then return the node to OCI
+
+HCA Fatal Error
+-	Symptoms: 
+o	Job fails to start or crashes midway through the job.
+-	Check: 
+o	dmesg -T | grep mlx5 | grep ' Fatal '
+-	Recommendations: 
+o	Clear dmesg and reboot the node (see appendix). If the problem persists, return the node to OCI
+
+ 
+Hardware fell of the bus
+-	Symptoms: 
+o	GPU, RDMA interface is missing
+-	Check: 
+o	lspci | grep 'rev ff' | wc -l
+-	Recommendations:
+o	Reboot the node (see appendix), if it returns a non-zero value. If one or more components show up missing within a day, return to OCI. If it fails to reboot, terminate and send it to OCI.
+
+PCIe Width missing lanes
+-	Symptoms: 
+o	Performance is lower than expected.
+-	Check: 
+o	GPUs and NVSwitches
+sudo lspci -vvv | egrep '^[0-9,a-f]|LnkSta:' | grep -A 1 -i nvidia | grep LnkSta | sort | uniq -c
+	H100/H200
+ 
+
+	B200s
+ 
+o	RDMA interfaces:
+sudo lspci -vvv | egrep '^[0-9,a-f]|LnkSta:' | grep -A 1 -i mellanox | grep LnkSta | sort | uniq -c
+	H100/H200
+ 
+	B200
+ 
+o	
+
+-	Recommendations:
+o	If you do not see 2 lines like above, reboot the host (see appendix), if the problem persists, send the node to OCI
+
+ 
+GID Index:
+-	Symptoms: 
+o	NCCL fails and reports something like “NCCL WARN Call to ibv_modify_qp failed with error No data available errno 61”
+-	Check:  
+o	show_gids
+-	Recommendations: 
+o	Output should look like the following.  
+o	If not, reboot the host and recheck. If that does not fix it, verify you are using the correct OCA plugin (1.46+ for H200) and image. 
+o	If the problem persists, contact your OCI support team. 
+
+
+ 
+GPU Checks
+
+ECC Errors
+-	Symptoms: Job fails to start or crashes with a memory error
+-	Check (Requires NVIDIA Driver 550+):
+o	nvidia-smi -q -d ecc | grep -v ": 0" | grep -v -E "Current|Pending"
+-	Recommendations: 
+o	If a GPU has Volatile DRAM Uncorrectable errors like the one below, we recommend that you reboot the node (see appendix) to clear the error. Volatile SRAM/DRAM correctable and Aggregate errors are ok unless you see SRAM Threshold Exceeded reporting Yes. If this is the case, please return the node to OCI
+
+  
+
+ 
+Row Remap Error
+-	Symptoms: 
+o	Job fails and complains about row remap error
+-	Check (Requires NVIDIA Driver 550+): 
+o	nvidia-smi --query-remapped-rows=gpu_name,gpu_bus_id,remapped_rows.correctable,remapped_rows.uncorrectable,remapped_rows.pending,remapped_rows.failure --format=csv
+-	Recommendations:
+o	If the last column values for each GPU does not equal zero, return to OCI
+ 
+o	If the last column values for each GPU is zero, reboot the host or reset the GPUs (see appendix)
+ 
+
+ 
+Thermal Throttling
+-	Symptoms: 
+o	Job performance suddenly drops or runs significantly slower than expected. GPU memory showing high temperatures
+-	Check:
+o	nvidia-smi --query-gpu=serial,pci.bus_id,clocks_event_reasons.active,clocks_event_reasons.gpu_idle,clocks_event_reasons.sw_power_cap,clocks_event_reasons.hw_slowdown,clocks_event_reasons.hw_thermal_slowdown,clocks_event_reasons.hw_power_brake_slowdown,clocks_event_reasons.sw_thermal_slowdown,temperature.gpu,temperature.memory --format=csv
+
+ 
+
+-	Recommendations: 
+o	If the third column from the end reports a GPU as “Active” consistently and not just intermittently, reboot the host with power action (see appendix). If the host continues to have a GPU throttled, then return the node to OCI.
+
+Missing GPU(s)
+-	Symptoms: 
+o	Job fails to start. nvidia-smi does not report 8 GPUs
+-	Check: 
+o	nvidia-smi --query-gpu=name --format=csv,noheader | wc -l 
+-	Recommendations: 
+o	Reboot the host (see appendix). If after the reboot, it reports less than 8 GPUs within a day return the node to OCI
+
+NVIDIA IMEX Errors (GB200)
+
+-	Symptoms: Job fails or fails to start with and error like “[0] transport/nvls.cc:232 NCCL WARN Cuda failure 600 'device not ready'”
+-	Check: nvidia-imex-ctl -N | grep "Domain State:"
+o	If it shows up as DOWN, review the recommendations.
+-	Recommendations:
+o	Check /etc/nvidia-imex/nodes_config.cfg to make sure the ip addresses of the nodes in the rack are there.
+o	Once the /etc/nvidia-imex/nodes_config.cfg is correct, restart the imex service ‘sudo systemctl restart nvidia-imex.service’
+o	Rerun the check to make sure that it reports as UP.
+
+NVLink Errors
+-	Symptoms: NVIDIA fabric manager fails to start. NCCL jobs fail to run or nvbandwidth errors out
+-	Check: nvidia-smi nvlink --status | grep -i inactive | wc -l
+-	Recommendations: 
+o	If it returns something other than zero, reboot the node (see appendix). If it still reports an issue within a day return the node to OCI
+
+
+Network Checks
+
+Eth0 Physical Errors:
+-	Symptoms: Slow ETH0 performance or sporadic failures
+-	Check:
+o	sudo mlxlink -d mlx5_2 -m -c -e| grep -E 'Effective Physical Errors|Raw Physical Errors Per Lane' | grep -v ': 0'
+-	Recommendations: 
+o	0 is expected, if it reports something else, return to OCI
+
+RDMA Link Down
+-	Symptoms: Job crashes or fails to start
+-	Check:
+o	for x in 0 1 3 4 5 6 7 8 9 10 12 13 14 15 16 17; do echo "mlx5_$x"; sudo mlxlink -d mlx5_${x} -m -e -c | grep "^State";done 
+-	Recommendations: 
+o	If any of the RDMA interfaces return something other than “Active”, reboot the host (see appendix). If the cable still reports down, return to OCI
+
+RDMA Link flaps
+-	Symptoms: 
+o	Job crashes or fails to start. NCCL error message on job launch will can show ib_create_qp or ib_modify_qp failed
+-	Check:
+o	dmesg -T | grep mlx5_ | grep -i link | grep -E -i 'up|down' | grep rdma
+-	Recommendations:
+o	We recommend that you wait 30 minutes until the system has been up before starting the check since every link will be configured by the agent and can result in a link going down. After the 30 minutes, any link down event would indicate the start of a link flap.
+o	If you see more than one flap an hour or three flap
+
+IB PKeys (GB200)
+-	Symptoms:
+o	NCCL jobs fail to run with errors like the one below
+	[1751412562.374638] [GPU-24:109984:0] select.c:644 UCX ERROR no active messages transport to : self/memory - Destination is unreachable, sysv/memory - Destination is unreachable, posix/memory - Destination is unreachable, rc_verbs/mlx5_0:1 - Destination is unreachable, ud_verbs/mlx5_0:1 - Destination is unreachable, dc_mlx5/mlx5_0:1
+o	IB write fails to run with an error like the one below
+	Problem in resolving basic address and port
+Unable to open file descriptor for socket connection
+Unable to init the socket connection
+-	Check:
+o	
+
+
+
+
+
+
+
+ 
+-	Recommendations:
+o	If it only returns 0: 0x7fff for any mlx5_[0,1,3,4] then the pkeys did not get setup correctly. Please contact your OCI support team so that a GPUFM ticket can be created to investigate the issue.
+
+Source Based Routing
+-	Symptoms: 
+o	Cannot communicate with other GPU hosts
+-	Check: 
+o	Single subnet (RDMA)
+	for x in {10..25}; do ip route show table $x; done | wc –l (H100)
+	for x in {10..17}; do ip route show table $x; done | wc –l (H200/B200)
+	Note (Expected Results: H100 - 32 and H200/B200 16 
+-	Recommendations: 
+o	If you do not see the expected results then, restart the OCA plugin.
+ 
+Appendix:
+Restart/Reset:
+
+Reset GPUs without reboot
+1.	sudo systemctl stop oracle-cloud-agent (OL) / sudo systemctl stop snap.oracle-cloud-agent.oracle-cloud-agent (Ubuntu)
+2.	sudo systemctl stop nvidia-dcgm.service 
+3.	sudo systemctl stop nvidia-persistenced.service 
+4.	sudo systemctl stop nvidia-fabricmanager.service
+5.	sudo modprobe -r nvidia_drm
+6.	sudo nvidia-smi -r 
+7.	sudo systemctl start nvidia-fabricmanager.service 
+8.	sudo systemctl start nvidia-persistenced.service 
+9.	sudo systemctl start nvidia-dcgm.service
+10.	sudo systemctl start oracle-cloud-agent (OL) / sudo systemctl start snap.oracle-cloud-agent.oracle-cloud-agent (Ubuntu)
+Reboot:
+Reboot the host with power action
+1.	GUI
+a.	https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/restartinginstance.htm
+2.	CLI 
+a.	oci compute instance action --instance-id <instance_OCID> --action SOFTRESET
+
+Reboot the host from the command prompt
+1.	(as root) sync;sync;sync;echo b > /proc/sysrq-trigger
+
+Clear dmesg
+1.	dmesg -C
+
