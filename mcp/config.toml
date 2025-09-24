@@ -1,0 +1,16 @@
+[project]
+# Chainlit project configuration
+
+[mcp]
+# MCP client timeout settings (in seconds)
+timeout_connect = 30
+timeout_read = 60
+timeout_write = 30
+
+[features]
+# Enable unstable features
+unstable = false
+
+[UI]
+# UI Configuration
+name = "MCP GPU Troubleshooter"

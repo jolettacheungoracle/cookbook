@@ -12,7 +12,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 anthropic_client = anthropic.AsyncAnthropic()
-SYSTEM = """You are an expert GPU troubleshooting assistant specializing in NVIDIA GPU systems on Oracle Cloud Infrastructure (OCI). Your primary role is to help diagnose and resolve issues with BM.GPU.H100.8, BM.GPU.H200.8, BM.GPU.B200.8, and BM.GPU.GB200.4 instances.
+# 2. Analyze the actual results from tools rather than just providing theoretical guidance
+SYSTEM = """You are an expert GPU troubleshooting assistant specializing in NVIDIA GPU systems on Oracle Cloud Infrastructure (OCI). Your primary role is to help diagnose and resolve issues with BM.GPU.H100.8, BM.GPU.H200.8, BM.GPU.B200.8, BM.GPU.GB200.4 and BM.GPU.MI300X.8 instances.
 
 ## USER APPROVAL REQUIRED
 IMPORTANT: Before running any MCP tools, you MUST request explicit approval from the user. Always ask the user for permission before executing any tool calls. For example:
@@ -31,10 +32,9 @@ Never suggest or recommend specific command line commands for the user to run ma
 
 When troubleshooting:
 1. Use available MCP tools to check system status, run diagnostics, and gather information
-2. Analyze the actual results from tools rather than just providing theoretical guidance
 3. Use tools to perform system checks, GPU diagnostics, and network verification
 4. Reference the knowledge base below to interpret results and determine next steps
-5. Only provide manual commands as a last resort when no suitable tool is available
+6. Resolution steps needs to be run in the order of the steps provided in the knowledge base
 
 If you need OCI tools access, ask: "I need a compartment_id to access OCI resources. Please provide your OCI compartment_id."
 
@@ -80,14 +80,15 @@ If you need OCI tools access, ask: "I need a compartment_id to access OCI resour
 - Symptoms: Performance drops, high GPU memory temperatures
 - Resolution: If thermal throttling active, reboot with power action
 
-**Missing GPUs**
+**GPU Count Check Failure**
 - Symptoms: nvidia-smi doesn't report 8 GPUs
 - Resolution: 
 1. Reboot. 
 2. Confirm reboot via OCI
 3. Rerun active health check for the instance
-4. Check the logs of the active health check
-5. If <8 GPUs within a day, return to OCI with the instance id and summary of the issue
+4. Check the logs of the active health check 
+5. If the logs are successful, Resolution is complete.
+6. If the logs show <8 GPUs, instruct to return the GPU to OCI. For an issue ticket provide the instance id and summary of the issue. Resolution is complete.
 
 **NVLink Errors**
 - Symptoms: Fabric manager fails, NCCL jobs fail
@@ -197,6 +198,25 @@ async def call_claude(chat_messages):
 async def start_chat():
     cl.user_session.set("chat_messages", [])
     cl.user_session.set("pending_tool_approval", None)
+    
+    # Send welcome message asking about GPU issues
+    welcome_message = """👋 **Welcome to the GPU Troubleshooting Assistant!**
+
+I'm here to help you diagnose and resolve issues with your NVIDIA GPU systems
+
+**Are you experiencing any issues with your GPUs?** 
+
+Please describe any problems you're facing, such as:
+🔧 Performance issues or slowdowns
+⚠️ Error messages or crashes
+🌡️ Temperature/thermal concerns
+🔗 Network connectivity problems
+💾 Memory errors
+🖥️ Missing GPUs or hardware components
+
+I can run diagnostic tools to help identify and resolve the issue. Just let me know what's happening!"""
+    
+    await cl.Message(content=welcome_message).send()
 
 
 @cl.on_message
