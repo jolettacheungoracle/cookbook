@@ -1,0 +1,13 @@
+{
+  "name": "llama4",
+  "display_name": "Llama 4 Maverick",
+  "type": "openai_compatible",
+  "model": "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
+  "api_key_env": "OPENAI_API_KEY",
+  "base_url": "https://maver.157-151-236-234.nip.io/v1",
+  "max_tokens": 1024,
+  "temperature": 0,
+  "streaming": true,
+  "supports_tools": true,
+  "description": "Llama 4 Maverick model via OpenAI-compatible API"
+}
